@@ -784,148 +784,131 @@ class Game:
         WIN = pygame.display.set_mode((WIDTH, HEIGHT), flags)
 
 
-    # -------- Game Loop -------------
+    # ----------------- GAME LOOP -----------------
     def main_update_draw(self):
         running = True
         while running:
             dt = CLOCK.tick(FPS) / 1000.0
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-                continue
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    continue
 
-            if event.type == pygame.MOUSEMOTION and self.state == STATE_MENU:
-                for b in self.buttons:
-                    b.handle(event)
-
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if self.state == STATE_MENU and event.button == 1:
+                # Hover / click events for menu buttons
+                if event.type == pygame.MOUSEMOTION and self.state == STATE_MENU:
                     for b in self.buttons:
                         b.handle(event)
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.state == STATE_MENU and event.button == 1:
+                        for b in self.buttons:
+                            b.handle(event)
+                    if self.state == STATE_MISSION_SELECT and event.button == 1:
+                        mx, my = event.pos
+                        cols = 1
+                        gap_y = 18
+                        card_w, card_h = WIDTH - 2 * ROAD_MARGIN, 130
+                        start_x, start_y = ROAD_MARGIN, 170
+                        y_off = int(getattr(self, "mission_scroll", 0))
+                        for i, _ in enumerate(MISSION_SELETS):
+                            rect = pygame.Rect(start_x, start_y + i * (card_h + gap_y) - y_off, card_w, card_h)
+                            if rect.collidepoint(mx, my):
+                                self.start_mission_from_index(i)
+                                break
 
-                # click a mission card to start that mission
-                if self.state == STATE_MISSION_SELECT and event.button == 1:
-                    mx, my = event.pos
-                    cols = 1
-                    gap_y = 18
-                    card_w, card_h = WIDTH - 2 * ROAD_MARGIN, 130
-                    start_x = ROAD_MARGIN
-                    start_y = 170
-                    y_off = int(getattr(self, "mission_scroll", 0))
-                    for i, _ in enumerate(MISSION_SELETS):
-                        x = start_x
-                        y = start_y + i * (card_h + gap_y) - y_off
-                        rect = pygame.Rect(x, y, card_w, card_h)
-                        if rect.collidepoint(mx, my):
-                            self.start_mission_from_index(i)
-                            break
+                # Scroll in mission list
+                if event.type == pygame.MOUSEWHEEL and self.state == STATE_MISSION_SELECT:
+                    self.mission_scroll = clamp(
+                        getattr(self, "mission_scroll", 0) - event.y * 40,
+                        0,
+                        getattr(self, "_mission_max_scroll", 0)
+                    )
 
-            if event.type == pygame.MOUSEWHEEL and self.state == STATE_MISSION_SELECT:
-                self.mission_scroll = clamp(
-                    getattr(self, "mission_scroll", 0) - event.y * 40,
-                    0,
-                    getattr(self, "_mission_max_scroll", 0)
-                )
-
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    if self.state in (STATE_MISSION_SELECT, STATE_SETTINGS, STATE_PAUSE):
-                        self.state = STATE_MENU
-                        continue
-                    else:
-                        running = False
-                        continue
-                # global toggles
-                if event.key == pygame.K_m:
-                    self.night = not self.night
-                if event.key == pygame.K_r and self.state in (STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MENU, STATE_MISSION_SELECT):
-                    self.rain = not self.rain
-                if event.key == pygame.K_f:
-                    self.toggle_fullscreen()
-
-                # state-specific keys
-                if self.state == STATE_MENU:
-                    if event.key == pygame.K_1:
-                        self.set_difficulty("Easy"); self.start_endless()
-                    elif event.key == pygame.K_2:
-                        self.set_difficulty("Normal"); self.start_endless()
-                    elif event.key == pygame.K_3:
-                        self.set_difficulty("Hard"); self.start_endless()
-                elif self.state == STATE_PLAY:
-                    if event.key in (pygame.K_a, pygame.K_LEFT):
-                        self.player.move_lane(-1, slippery=self.rain)
-                    elif event.key in (pygame.K_d, pygame.K_RIGHT):
-                        self.player.move_lane(+1, slippery=self.rain)
-                    elif event.key == pygame.K_p:
-                        self.state = STATE_PAUSE
-                elif self.state == STATE_PAUSE:
-                    if event.key == pygame.K_p:
-                        self.state = STATE_PLAY
-                    elif event.key == pygame.K_s:
-                        self.state = STATE_SETTINGS
-                elif self.state == STATE_SETTINGS:
-                    if event.key == pygame.K_p:
-                        self.state = STATE_PAUSE
-                    elif event.key == pygame.K_UP:
-                        self.volume = min(1.0, self.volume + 0.05); self.update_volume()
-                    elif event.key == pygame.K_DOWN:
-                        self.volume = max(0.0, self.volume - 0.05); self.update_volume()
-                elif self.state == STATE_MISSION_SELECT:
-                    # quick-select missions with number keys
-                    if pygame.K_1 <= event.key <= pygame.K_9:
-                        idx = event.key - pygame.K_1
-                        if idx < len(MISSION_SELETS):
-                            self.start_mission_from_index(idx)
-                    elif event.key == pygame.K_UP:
-                        self.mission_scroll = clamp(
-                            getattr(self, "mission_scroll", 0) - 40,
-                            0,
-                            getattr(self, "_mission_max_scroll", 0)
-                        )
-                    elif event.key == pygame.K_DOWN:
-                        self.mission_scroll = clamp(
-                            getattr(self, "mission_scroll", 0) + 40,
-                            0,
-                            getattr(self, "_mission_max_scroll", 0)
-                        )
-                elif self.state == STATE_GAMEOVER:
+                # Keyboard input
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.state in (STATE_MISSION_SELECT, STATE_SETTINGS, STATE_PAUSE):
+                            self.state = STATE_MENU
+                            continue
+                        else:
+                            running = False
+                            continue
+                    if event.key == pygame.K_m:
+                        self.night = not self.night
                     if event.key == pygame.K_r:
-                        self.best = max(getattr(self, 'best', 0), self.score)
-                        self.reset(full=False)
-                        self.missions = []
-                        self.state = STATE_MENU
+                        self.rain = not self.rain
+                    if event.key == pygame.K_f:
+                        self.toggle_fullscreen()
 
-        # ---- DRAW PHASE ----
-        if self.state == STATE_MENU:
-            self.draw_game_world(WIN)
-            self.draw_menu(WIN, dt)
-        elif self.state == STATE_MISSION_SELECT:
-            self.draw_game_world(WIN)
-            self.draw_missions(WIN)
-        elif self.state == STATE_PLAY:
-            self.update_play(dt)
-            self.draw_game_world(WIN)
-            self.draw_game_hud(WIN)
-            if self.dead:
-                self.best = max(getattr(self,'best',0), self.score)
+                    if self.state == STATE_MENU:
+                        if event.key == pygame.K_1:
+                            self.set_difficulty("Easy"); self.start_endless()
+                        elif event.key == pygame.K_2:
+                            self.set_difficulty("Normal"); self.start_endless()
+                        elif event.key == pygame.K_3:
+                            self.set_difficulty("Hard"); self.start_endless()
+                    elif self.state == STATE_PLAY:
+                        if event.key in (pygame.K_a, pygame.K_LEFT):
+                            self.player.move_lane(-1, slippery=self.rain)
+                        elif event.key in (pygame.K_d, pygame.K_RIGHT):
+                            self.player.move_lane(+1, slippery=self.rain)
+                        elif event.key == pygame.K_p:
+                            self.state = STATE_PAUSE
+                    elif self.state == STATE_PAUSE:
+                        if event.key == pygame.K_p:
+                            self.state = STATE_PLAY
+                        elif event.key == pygame.K_s:
+                            self.state = STATE_SETTINGS
+                    elif self.state == STATE_SETTINGS:
+                        if event.key == pygame.K_p:
+                            self.state = STATE_PAUSE
+                        elif event.key == pygame.K_UP:
+                            self.volume = min(1.0, self.volume + 0.05); self.update_volume()
+                        elif event.key == pygame.K_DOWN:
+                            self.volume = max(0.0, self.volume - 0.05); self.update_volume()
+                    elif self.state == STATE_MISSION_SELECT:
+                        if pygame.K_1 <= event.key <= pygame.K_9:
+                            idx = event.key - pygame.K_1
+                            if idx < len(MISSION_SELETS):
+                                self.start_mission_from_index(idx)
+                    elif self.state == STATE_GAMEOVER:
+                        if event.key == pygame.K_r:
+                            self.best = max(getattr(self, 'best', 0), self.score)
+                            self.reset(full=False)
+                            self.missions = []
+                            self.state = STATE_MENU
+
+            # ------------- DRAW -------------
+            if self.state == STATE_MENU:
+                self.draw_game_world(WIN)
+                self.draw_menu(WIN, dt)
+            elif self.state == STATE_MISSION_SELECT:
+                self.draw_game_world(WIN)
+                self.draw_missions(WIN)
+            elif self.state == STATE_PLAY:
+                self.update_play(dt)
+                self.draw_game_world(WIN)
+                self.draw_game_hud(WIN)
+                if self.dead:
+                    self.best = max(getattr(self, 'best', 0), self.score)
+                    self.draw_gameover(WIN)
+            elif self.state == STATE_PAUSE:
+                self.draw_game_world(WIN)
+                self.draw_game_hud(WIN)
+                self.draw_pause(WIN)
+            elif self.state == STATE_SETTINGS:
+                self.draw_game_world(WIN)
+                self.draw_game_hud(WIN)
+                self.draw_settings(WIN)
+            elif self.state == STATE_GAMEOVER:
+                self.draw_game_world(WIN)
+                self.draw_game_hud(WIN)
                 self.draw_gameover(WIN)
-        elif self.state == STATE_PAUSE:
-            self.draw_game_world(WIN)
-            self.draw_game_hud(WIN)
-            self.draw_pause(WIN)
-        elif self.state == STATE_SETTINGS:
-            self.draw_game_world(WIN)
-            self.draw_game_hud(WIN)
-            self.draw_settings(WIN)
-        elif self.state == STATE_GAMEOVER:
-            self.draw_game_world(WIN)
-            self.draw_game_hud(WIN)
-            self.draw_gameover(WIN)
 
-        pygame.display.flip()
+            pygame.display.flip()
 
-    pygame.quit(); sys.exit()
+        pygame.quit()
+        sys.exit()
 
 
 # ===================== Run =====================
