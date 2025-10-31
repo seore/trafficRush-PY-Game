@@ -303,7 +303,7 @@ def generate_game_mission(difficulty):
 
 
 # ===================== The Game =====================
-STATE_MENU, STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_GAMEOVER = range(5)
+STATE_MENU, STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MISSIONS, STATE_GAMEOVER = range(6)
 
 class Game:
     def __init__(self):
@@ -333,15 +333,24 @@ class Game:
         self.dead = False
         self.elapsed = 0.0
         self.near_miss_combo = 0
-        # power-up states
-        self.slow_t = 0.0      # slow-motion time left
-        self.ghost_t = 0.0     # ghost time left (no collisions)
-        self.magnet_t = 0.0    # magnet time left
-        # toggles
+
+        # game missions and UI
+        self.missions = generate_game_mission(self.diff)
+        self.title_t = 0.0
+        self.buttons = []
+        self.build_menu_buttons()
+
+        # game power-up states
+        self.slow_t = 0.0     
+        self.ghost_t = 0.0     
+        self.magnet_t = 0.0    
+
+        # game toggles
         self.night = False
         self.rain = False
         self.state = STATE_MENU
-        # settings
+
+        # game settings
         self.volume = 0.25
         self.update_volume()
 
@@ -361,7 +370,30 @@ class Game:
         same = [e for e in self.enemies if e.lane == lane]
         if not same: return True
         last = max(same, key=lambda e: e.y)
-        return (last.y - ENEMY_H) > SAFE_SPAWN_GAP
+        return (last.y - ENEMY_HEIGHT) > SAFE_SPAWN_GAP
+    
+    # -------- UI Settings ------------
+    def build_menu_buttons(self):
+        self.buttons = []
+        spacing = 68
+        w, h = 260, 52
+        x = (WIDTH - w)//2
+        start_y = 300
+        def add(label, cb):
+            self.buttons.append(Button((x, start_y + spacing * len(self.buttons), w, h), label, cb))
+        add("Start (1/2/3)", lambda: None)
+        add("Settings", lambda: self.goto_settings())
+        add("Missions", lambda: self.goto_missions())
+        add("Quit", lambda: self.quit())
+
+    def goto_settings(self):
+        self.state = STATE_SETTINGS
+
+    def goto_missions(self):
+        self.state = STATE_MISSIONS
+
+    def quit(self):
+        pygame.quit(); sys.exit()
 
     def update_play(self, dt, left_pressed, right_pressed):
         if self.dead: return
