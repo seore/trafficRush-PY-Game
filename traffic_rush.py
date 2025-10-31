@@ -121,7 +121,7 @@ class Button:
         bg = BTN_HL if self.hover else BTN_BG
         pygame.draw.rect(surf, bg, self.rect, border_radius=12)
         pygame.draw.rect(surf, (0,0,0), self.rect, 2, border_radius=12)
-        t = MID.render(self.render, True, TEXT)
+        t = MID.render(self.label, True, TEXT)
         surf.blit(t, (self.rect.centerx - t.get_width()//2, self.rect.centery - t.get_height()//2))
 
     def handle(self, ev):
@@ -348,6 +348,7 @@ class Game:
         # game toggles
         self.night = False
         self.rain = False
+        self.fullscreen = getattr(self, "fullscreen", False)
         self.state = STATE_MENU
 
         # game settings
@@ -399,6 +400,7 @@ class Game:
         if self.dead: return
         self.elapsed += dt
         self.speed += (self.SPEED_RAMP/60.0) * dt
+
         # game timers
         self.slow_t = max(0.0, self.slow_t - dt)
         self.ghost_t = max(0.0, self.ghost_t - dt)
@@ -407,7 +409,6 @@ class Game:
         # scores by distance 
         self.score += (self.speed * dt) / 10.0
 
-        # spawns
         self.spawn_timer -= dt
         if self.spawn_timer <= 0:
             lanes = list(range(LANES)); random.shuffle(lanes)
@@ -602,7 +603,7 @@ class Game:
         draw_text_center(surf, f"Volume: {int(self.volume*100)}%  (Up/Down)", MID, TEXT, 200)
         draw_text_center(surf, f"Night Mode: {'On' if self.night else 'Off'} (M)", MID, TEXT, 240)
         draw_text_center(surf, f"Rain: {'On' if self.rain else 'Off'} (R)", MID, TEXT, 280)
-        draw_text_center(surf, f"Fullscreen: {'On' if self.fullscreen else 'Off'} (F)", MID, TEXT, 320)
+        draw_text_center(surf, f"Fullscreen: {'On' if getattr(self, 'fullscreen', False) else 'Off'} (F)", MID, TEXT, 320)
         draw_text_center(surf, "Back: P", MID, TEXT, 360)
 
     def draw_gameover(self, surf):
@@ -622,14 +623,11 @@ class Game:
         draw_text_center(surf, "Press R to Restart • Esc to Quit", MID, TEXT, HEIGHT//2 + 20)
 
     def toggle_fullscreen(self):
-        global WIN, WIDTH, HEIGHT
-        self.fullscreen = not self.fullscreen
-        if self.fullscreen:
-            WIN = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
-        else:
-            WIN = pygame.display.set_mode((WIDTH, HEIGHT))
-        global LANE_X
-        LANE_X = lane_centers()
+        global WIN
+        self.fullscreen = not getattr(self, "fullscreen", False)
+        flags = pygame.FULLSCREEN if self.fullscreen else 0
+        WIN = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+
 
     # -------- Game Loop -------------
     def main_update_draw(self):
@@ -644,8 +642,13 @@ class Game:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
-                    self.handle_keydown_global(event.key)
-                    # State transitions
+                    # global game toggles
+                    if event.key == pygame.K_m: self.night = not self.night
+                    if event.key == pygame.K_r and self.state in (STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MENU):
+                        self.rain = not self.rain
+                    if event.key == pygame.K_f: self.toggle_fullscreen()
+
+                    # stateful input
                     if self.state == STATE_MENU:
                         if event.key == pygame.K_1: self.set_difficulty("Easy"); self.state = STATE_PLAY
                         if event.key == pygame.K_2: self.set_difficulty("Normal"); self.state = STATE_PLAY
@@ -658,41 +661,46 @@ class Game:
                         if event.key == pygame.K_p:
                             self.state = STATE_PAUSE
                     elif self.state == STATE_PAUSE:
-                        if event.key == pygame.K_p:
-                            self.state = STATE_PLAY
-                        if event.key == pygame.K_s:
-                            self.state = STATE_SETTINGS
+                        if event.key == pygame.K_p: self.state = STATE_PLAY
+                        if event.key == pygame.K_s: self.state = STATE_SETTINGS
                     elif self.state == STATE_SETTINGS:
-                        if event.key == pygame.K_p:
-                            self.state = STATE_PAUSE
+                        if event.key == pygame.K_p: self.state = STATE_PAUSE
                         if event.key == pygame.K_UP:
                             self.volume = min(1.0, self.volume + 0.05); self.update_volume()
                         if event.key == pygame.K_DOWN:
                             self.volume = max(0.0, self.volume - 0.05); self.update_volume()
+                    elif self.state == STATE_MISSIONS:
+                        if event.key == pygame.K_p:
+                            self.state = STATE_MENU
                     elif self.state == STATE_GAMEOVER:
                         if event.key == pygame.K_r:
                             self.best = max(getattr(self,'best',0), self.score)
-                            self.set_difficulty(self.diff)
+                            # keep same difficulty, regenerate missions
                             self.reset(full=False)
+                            self.missions = generate_game_mission(self.diff)
                             self.state = STATE_MENU
 
-            # Update & draw per state
+                elif event.type == pygame.MOUSEMOTION or event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.state == STATE_MENU:
+                        for b in self.buttons:
+                            b.handle(event)
+
+            # Update & draw
             if self.state == STATE_MENU:
-                self.draw_world(WIN)
-                self.draw_menu(WIN)
+                self.draw_game_world(WIN); self.draw_menu(WIN, dt)
             elif self.state == STATE_PLAY:
-                self.update_play(dt, left_pressed, right_pressed)
-                self.draw_world(WIN)
-                self.draw_hud(WIN)
+                self.update_play(dt); self.draw_game_world(WIN); self.draw_game_hud(WIN)
                 if self.dead:
                     self.best = max(getattr(self,'best',0), self.score)
                     self.draw_gameover(WIN)
             elif self.state == STATE_PAUSE:
-                self.draw_world(WIN); self.draw_hud(WIN); self.draw_pause(WIN)
+                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_pause(WIN)
             elif self.state == STATE_SETTINGS:
-                self.draw_world(WIN); self.draw_hud(WIN); self.draw_settings(WIN)
+                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_settings(WIN)
+            elif self.state == STATE_MISSIONS:
+                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_missions(WIN)
             elif self.state == STATE_GAMEOVER:
-                self.draw_world(WIN); self.draw_hud(WIN); self.draw_gameover(WIN)
+                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_gameover(WIN)
 
             pygame.display.flip()
 
