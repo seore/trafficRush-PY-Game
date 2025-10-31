@@ -145,6 +145,9 @@ def shrink_to_fit(title_text, max_width, base_size=15, min_size=15, font_name="a
     f = pygame.font.SysFont(font_name, min_size, bold=bold)
     return f, f.render(title_text, True, TEXT)
 
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
 # In-Game UI
 class Button:
     def __init__(self, rect, label, cb):
@@ -680,52 +683,63 @@ class Game:
         card_w, card_h = WIDTH - 2 * ROAD_MARGIN, 130
         start_x = ROAD_MARGIN
         start_y = 170
+        footer_h = 36
 
-        mouse_pos = pygame.mouse.get_pos()
+        content_h = start_y + len(MISSION_SELETS) * (card_h + gap_y) - gap_y
+        view_h = HEIGHT - start_y - footer_h
+        self._mission_scroll = max(0, content_h - view_h)
+
+        list_clip = pygame.Rect(start_x, start_y-8, card_w, view_h+8)
+        old_clip = surf.get_clip()
+        surf.set_clip(list_clip)
+
+        y_offset = int(self.mission_scroll)
+        mouse_x, mouse_y = pygame.mouse.get_pos()
 
         for i, d in enumerate(MISSION_SELETS):
             x = start_x
-            y = start_y + i * (card_h + gap_y)
+            y = start_y + i * (card_h + gap_y) - y_offset
             rect = pygame.Rect(x, y, card_w, card_h)
 
-            hover = rect.collidepoint(mouse_pos)
+            if rect.bottom < list_clip.top or rect.top > list_clip.bottom:
+                continue
+
+            hover = rect.collidepoint((mouse_x, mouse_y))
 
             # Draw card surface
-            card_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
-            pygame.draw.rect(card_surf, BTN_HL if hover else BTN_BG, card_surf.get_rect(), border_radius=12)
-            pygame.draw.rect(card_surf, (0, 0, 0), card_surf.get_rect(), 2, border_radius=12)
+            # card_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            pygame.draw.rect(surf, BTN_HL if hover else BTN_BG, rect, border_radius=12)
+            pygame.draw.rect(surf, (0, 0, 0), rect, 2, border_radius=12)
 
             pad_x, pad_y = 16, 10
-            inner_w = card_w - 2 * pad_x
-            y_cursor = pad_y
+            inner_w = rect.width - 2 * pad_x
+            y_cursor = rect.y + pad_y
    
             title_str = f"{i+1}. {d['name']}"
             title_font, title_surf = shrink_to_fit(
                 title_str, max_width=inner_w, base_size=26, min_size=16, font_name="arial", bold=True
             )
-            card_surf.blit(title_surf, (pad_x, y_cursor))
+            surf.blit(title_surf, (rect.x + pad_x, y_cursor))
             y_cursor += title_font.get_linesize() + 6
 
             desc_font = pygame.font.SysFont("arial", 18, bold=False)
             desc_lines = wrap_text(d["desc"], desc_font, inner_w)
-            max_desc_lines = 2
-            if len(desc_lines) > max_desc_lines:
-                desc_lines = desc_lines[:max_desc_lines]
-                last = desc_lines[-1]
+            max_lines = 2
+            if len(lines) > max_lines:
+                lines = lines[:max_lines]
+                last = lines[-1]
                 while desc_font.size(last + "…")[0] > inner_w and last:
                     last = last[:-1]
-                desc_lines[-1] = (last + "…") if last else "…"
+                lines[-1] = (last + "…") if last else "…"
             for ln in desc_lines:
-                card_surf.blit(desc_font.render(ln, True, (210, 215, 230)), (pad_x, y_cursor))
+                surf.blit(desc_font.render(ln, True, (210, 215, 230)), (rect.x + pad_x, y_cursor))
                 y_cursor += desc_font.get_linesize()
                         
             reward_str = f"Reward: +{d['reward']} score"
             rw_font, rw_surf = shrink_to_fit(
                 reward_str, max_width=inner_w, base_size=20, min_size=14, font_name="arial", bold=True
-            )
-            card_surf.blit(rw_surf, (pad_x, card_h - pad_y - rw_surf.get_height()))
-                        
-            surf.blit(card_surf, (x, y))
+            )                        
+            surf.blit(rw_surf, (rect.x + pad_x, rect.bottom - pad_y - rw_surf.get_height()))
                         
         draw_text_center(surf, "M: Night  •  R: Rain  •  F: Fullscreen  •  ESC: Quit", SMALL, (0, 0, 0), HEIGHT - 32)
 
@@ -773,7 +787,7 @@ class Game:
 
     # -------- Game Loop -------------
     def main_update_draw(self):
-        left_pressed = right_pressed = False
+        # left_pressed = right_pressed = False
         running = True
         while running:
             dt = CLOCK.tick(FPS)/1000.0
@@ -781,71 +795,103 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                    # global game toggles
-                    if event.key == pygame.K_m: self.night = not self.night
-                    if event.key == pygame.K_r and self.state in (STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MENU):
-                        self.rain = not self.rain
-                    if event.key == pygame.K_f: self.toggle_fullscreen()
+                    continue
 
-                    # stateful input
-                    if self.state == STATE_MENU:
-                        if event.key == pygame.K_1: self.set_difficulty("Easy"); self.start_endless()
-                        if event.key == pygame.K_2: self.set_difficulty("Normal"); self.start_endless()
-                        if event.key == pygame.K_3: self.set_difficulty("Hard"); self.start_endless()
-                    elif self.state == STATE_PLAY:
-                        if event.key in (pygame.K_a, pygame.K_LEFT):
-                            self.player.move_lane(-1, slippery=self.rain)
-                        if event.key in (pygame.K_d, pygame.K_RIGHT):
-                            self.player.move_lane(+1, slippery=self.rain)
-                        if event.key == pygame.K_p:
-                            self.state = STATE_PAUSE
-                    elif self.state == STATE_PAUSE:
-                        if event.key == pygame.K_p: self.state = STATE_PLAY
-                        if event.key == pygame.K_s: self.state = STATE_SETTINGS
-                    elif self.state == STATE_SETTINGS:
-                        if event.key == pygame.K_p: self.state = STATE_PAUSE
-                        if event.key == pygame.K_UP:
-                            self.volume = min(1.0, self.volume + 0.05); self.update_volume()
-                        if event.key == pygame.K_DOWN:
-                            self.volume = max(0.0, self.volume - 0.05); self.update_volume()
-                    elif self.state == STATE_MISSION_SELECT:
-                        if event.type == pygame.KEYDOWN:
-                            if pygame.K_1 <= event.key <= pygame.K_9:
-                                idx = event.key - pygame.K_1
-                                if idx < len(MISSION_SELETS):
-                                    self.start_mission_from_index(idx)
-                            if event.key == pygame.K_p:
-                                self.state = STATE_MENU
-                        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if event.type == pygame.MOUSEBUTTONDOWN and self.state == STATE_MENU:
+                    for b in self.buttons:
+                        b.handle(event)
+                    
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.state == STATE_MENU and event.button == 1:
+                        for b in self.buttons:
+                            b.handle(event)
+
+                    if self.state == STATE_MISSION_SELECT and event.button == 1:
                             mx, my = event.pos
-                            cols =2
-                            gap_x, gap_y = 20, 16
-                            card_w, card_h = (WIDTH-2*ROAD_MARGIN - (cols-1)*gap_x)// cols, 110
+                            cols = 1
+                            gap_y = 20, 18
+                            card_w, card_h = WIDTH-2*ROAD_MARGIN, 100
                             start_x = ROAD_MARGIN
                             start_y = 170
+                            y_off = int(getattr(self, "mission_scroll", 0))
+
                             for i, _ in enumerate(MISSION_SELETS):
-                                row = i // cols; col = i % cols
-                                x = start_x + col*(card_w + gap_x)
-                                y = start_y + row*(card_h + gap_y)
+                                x = start_x 
+                                y = start_y + i*(card_h + gap_y) - y_off
                                 rect = pygame.Rect(x, y, card_w, card_h)
                                 if rect.collidepoint(mx, my):
                                     self.start_mission_from_index(i)
                                     break
+                
+                if event.type == pygame.MOUSEWHEEL and self.state == STATE_MISSION_SELECT:
+                    self.mission_scroll = clamp(
+                        getattr(self, "mission_scroll", 0) - event.y * 40, 0, getattr(self, "_mission_scroll", 0)
+                    )
+
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        if self.state in (STATE_MISSION_SELECT, STATE_SETTINGS, STATE_PAUSE):
+                            self.state = STATE_MENU
+                            continue
+                        else:
+                            running = False
+                            continue
+                    
+                    if event.key == pygame.K_m:
+                        self.night = not self.night
+                    if event.key == pygame.K_r and self.state in (STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MENU, STATE_MISSION_SELECT):
+                        self.rain = not self.rain
+                    if event.key == pygame.K_f:
+                        self.toggle_fullscreen()
+                    
+                    if self.state == STATE_MENU:
+                        if event.key == pygame.K_1:
+                            self.set_difficulty("Easy"); self.start_endless()
+                        elif event.key == pygame.K_2:
+                            self.set_difficulty("Normal"); self.start_endless()
+                        elif event.key == pygame.K_3:
+                            self.set_difficulty("Hard"); self.start_endless()
+                    elif self.state == STATE_PLAY:
+                        if event.key in (pygame.K_a, pygame.K_LEFT):
+                            self.player.move_lane(-1, slippery=self.rain)
+                        elif event.key in (pygame.K_d, pygame.K_RIGHT):
+                            self.player.move_lane(+1, slippery=self.rain)
+                        elif event.key == pygame.K_p:
+                            self.state = STATE_PAUSE
+                    elif self.state == STATE_PAUSE:
+                        if event.key == pygame.K_p:
+                            self.state = STATE_PLAY
+                        elif event.key == pygame.K_s:
+                            self.state = STATE_SETTINGS
+                    elif self.state == STATE_SETTINGS:
+                        if event.key == pygame.K_p:
+                            self.state = STATE_PAUSE
+                        elif event.key == pygame.K_UP:
+                            self.volume = min(1.0, self.volume + 0.05); self.update_volume()
+                        elif event.key == pygame.K_DOWN:
+                            self.volume = max(0.0, self.volume - 0.05); self.update_volume()
+                    elif self.state == STATE_MISSION_SELECT:
+                    # selection of missions with number keys
+                        if pygame.K_1 <= event.key <= pygame.K_9:
+                            idx = event.key - pygame.K_1
+                            if idx < len(MISSION_SELETS):
+                                self.start_mission_from_index(idx)
+                            elif event.key == pygame.K_UP:
+                                self.mission_scroll = clamp(
+                                    getattr(self, "mission_scroll", 0) - 40,0,
+                                    getattr(self, "_mission_max_scroll", 0)
+                                )
+                            elif event.key == pygame.K_DOWN:
+                                self.mission_scroll = clamp(
+                                    getattr(self, "mission_scroll", 0) + 40,
+                                    0, getattr(self, "_mission_max_scroll", 0)
+                                )
                     elif self.state == STATE_GAMEOVER:
                         if event.key == pygame.K_r:
-                            self.best = max(getattr(self,'best',0), self.score)
-                            # keep same difficulty, regenerate missions
+                            self.best = max(getattr(self, 'best', 0), self.score)
                             self.reset(full=False)
-                            self.missions = generate_game_mission(self.diff)
+                            self.missions = []
                             self.state = STATE_MENU
-
-                elif event.type == pygame.MOUSEMOTION or event.type == pygame.MOUSEBUTTONDOWN:
-                    if self.state == STATE_MENU:
-                        for b in self.buttons:
-                            b.handle(event)
 
             # Update & draw
             if self.state == STATE_MENU:
