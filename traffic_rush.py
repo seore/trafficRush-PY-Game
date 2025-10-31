@@ -122,15 +122,21 @@ class Button:
         pygame.draw.rect(surf, bg, self.rect, border_radius=12)
         pygame.draw.rect(surf, (0,0,0), self.rect, 2, border_radius=12)
         t = MID.render(self.render, True, TEXT)
-        surf.blit(t, (self.rect.centerx - t.get_width()//2, self.rect.cent))
+        surf.blit(t, (self.rect.centerx - t.get_width()//2, self.rect.centery - t.get_height()//2))
 
+    def handle(self, ev):
+        if ev.type == pygame.MOUSEMOTION:
+            self.hover = self.rect.collidepoint(ev.pos)
+        elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.hover:
+            if self.cb: self.cb()
 
 class Car:
     def __init__(self):
-        self.lane = 1
+        self.lane = LANES // 2
         self.x = LANE_X[self.lane]
         self.y = HEIGHT - 120
-        self.rect = rect_from_center(self.x, self.y, PLAYER_W, PLAYER_H)
+        self.rect = rect_from_center(self.x, self.y, PLAYER_WIDTH, PLAYER_HEIGHT)
+        self.lane_changes = 0
 
     def move_lane(self, delta, slippery=False):
         target = max(0, min(LANES-1, self.lane + delta))
@@ -138,6 +144,8 @@ class Car:
         if slippery and random.random() < 0.18 and 0 < target < LANES-1:
             target += random.choice([-1, 1])
             target = max(0, min(LANES-1, target))
+        if target != self.lane:
+            self.lane_changes += 1
         self.lane = target
         self.x = LANE_X[self.lane]
         self.rect.centerx = self.x
@@ -145,9 +153,9 @@ class Car:
     def draw(self, surf, night=False):
         color = PLAYER_COLOR if not night else (140, 200, 255)
         pygame.draw.rect(surf, color, self.rect, border_radius=10)
-        w = self.rect.copy(); w.height = int(PLAYER_H*0.25); w.y += 10
+        w = self.rect.copy(); w.height = int(PLAYER_HEIGHT*0.25); w.y += 10
         pygame.draw.rect(surf, (200, 240, 255), w, border_radius=8)
-        # headlights (night)
+        # Car headlights (nightMode)
         if night:
             cone = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             cx, cy = self.rect.centerx, self.rect.top+10
@@ -159,19 +167,20 @@ class Car:
             surf.blit(cone, (0,0))
 
 class Enemy:
-    def __init__(self, lane, y):
+    def __init__(self, lane, y, vtype_name, vinfo):
+        self.kind = vtype_name
+        (w, h), self.speed_factor, _ = vinfo
         self.lane = lane
         self.x = LANE_X[lane]
         self.y = y
-        self.rect = rect_from_center(self.x, self.y, ENEMY_W, ENEMY_H)
-        r = max(0, min(255, ENEMY_COLOR[0] + random.randint(-15, 15)))
-        g = max(0, min(255, ENEMY_COLOR[1] + random.randint(-15, 15)))
-        b = max(0, min(255, ENEMY_COLOR[2] + random.randint(-15, 15)))
-        self.color = (r, g, b)
+        self.rect = rect_from_center(self.x, self.y, w, h)
+        base = ENEMY_COLOR
+        jitter = lambda c: max(0, min(255, c + random.randint(-18,18)))
+        self.color = (jitter(base[0]), jitter(base[1]), jitter(base[2]))
         self.near_miss_counted = False
 
-    def update(self, dt, speed, slow_factor=1.0):
-        self.y += speed*slow_factor*dt
+    def update(self, dt, base_speed, slow_factor=1.0):
+        self.y += base_speed * self.speed_factor * slow_factor * dt
         self.rect.centery = int(self.y)
 
     def offscreen(self):
@@ -201,8 +210,7 @@ class Coin:
                 pull = 240 * dt
                 self.rect.centerx += int(pull * dx / dist)
                 self.rect.centery += int(pull * dy / dist)
-        self.y += speed*slow_factor*dt
-        # keep rect aligned with y scroll (when not magnet pulling)
+        self.y += speed * slow_factor * dt
         self.rect.centery = int(self.y)
 
     def offscreen(self):
@@ -213,7 +221,7 @@ class Coin:
         pygame.draw.circle(surf, (255,235,140), self.rect.center, self.rect.width//2 - 5, 2)
 
 class PowerUp:
-    # types: "SLOW", "GHOST", "MAGNET"
+    # "SLOW", "GHOST", "MAGNET"
     def __init__(self, kind, lane, y):
         self.kind = kind
         self.lane = lane
@@ -222,7 +230,7 @@ class PowerUp:
         self.rect = rect_from_center(self.x, self.y, PWR_SIZE, PWR_SIZE)
 
     def update(self, dt, speed, slow_factor=1.0):
-        self.y += speed*slow_factor*dt
+        self.y += speed * slow_factor * dt
         self.rect.centery = int(self.y)
 
     def offscreen(self):
