@@ -9,10 +9,10 @@ LANE_LINE_WIDTH = 6
 DASH_HEIGHT = 40
 DASH_GAP = 30
 
-PLAYER_WIDTH, PLAYER_HEIGHT = 45, 70
-ENEMY_WIDTH, ENEMY_HEIGHT = 56, 98
-COIN_SIZE = 5
-PWR_SIZE = 10
+PLAYER_WIDTH, PLAYER_HEIGHT = 40, 68
+ENEMY_WIDTH, ENEMY_HEIGHT = 42, 70
+COIN_SIZE = 24
+PWR_SIZE = 26
 
 # Difficulty presets
 DIFFS = {
@@ -24,10 +24,20 @@ DIFFS = {
 # Vehicle Options
 VEHICLE_TYPES = {
     "car": ((ENEMY_WIDTH, ENEMY_HEIGHT), 1.00, 55),
-    "van": ((ENEMY_WIDTH + 8, ENEMY_HEIGHT + 10), 0.95, 22),
-    "truck": ((ENEMY_WIDTH + 14, ENEMY_HEIGHT + 10), 0.85, 14),
-    "motorcycle": ((ENEMY_WIDTH - 18, ENEMY_HEIGHT - 30), 1.18, 9)
+    "van": ((ENEMY_WIDTH + 1, ENEMY_HEIGHT + 10), 0.95, 22),
+    #"truck": ((ENEMY_WIDTH + 0.5, ENEMY_HEIGHT + 10), 0.85, 14),
+    #"motorcycle": ((ENEMY_WIDTH - 18, ENEMY_HEIGHT - 30), 1.18, 9)
 }
+
+# Game Mission Selectors
+MISSION_SELETS = [
+    dict(name="Endurance 60", kind="survive", target=60, reward=400, desc="Survive for 60 seconds."),
+    dict(name="Coin Collector 20", kind="coins", target=20, reward=300, desc="Collect 20 coins in one run."),
+    dict(name="Combo x6", kind="combo", target=6, reward=350, desc="Reach a near-miss combo of x6."),
+    dict(name="Endurance 90", kind="survive", target=90, reward=650, desc="Survive for 90 seconds."),
+    dict(name="Coin Collector 35", kind="coins", target=35, reward=520, desc="Collect 35 coins in one run."),
+    dict(name="Combo x8", kind="combo", target=8, reward=600, desc="Hit a near-miss combo of x8."),
+]
 
 SAFE_SPAWN_GAP = 140
 COIN_SPAWN_EVERY = (1.2, 2.2)
@@ -108,6 +118,32 @@ def weighted_choice(d):
             return name, val
         upto += w
     return items[-1]
+
+
+def wrap_text(text, font, max_width):
+    words = text.split()
+    lines, cur = [], ""
+    for w in words:
+        test = (cur + " " + w).strip()
+        if font.size(test)[0] <= max_width:
+            cur = test
+        else:
+            if cur: lines.append(cur)
+            cur = w
+    if cur: lines.append(cur)
+    return lines
+
+def shrink_to_fit(title_text, max_width, base_size=15, min_size=15, font_name="arial", bold=True):
+    size = base_size
+    while size >= min_size:
+        f = pygame.font.SysFont(font_name, size, bold=bold)
+        w, _ = f.size(title_text)
+        if w <= max_width:
+            return f, f.render(title_text, True, TEXT)
+        size -= 1
+    # fallback at min_size
+    f = pygame.font.SysFont(font_name, min_size, bold=bold)
+    return f, f.render(title_text, True, TEXT)
 
 # In-Game UI
 class Button:
@@ -303,7 +339,7 @@ def generate_game_mission(difficulty):
 
 
 # ===================== The Game =====================
-STATE_MENU, STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_MISSIONS, STATE_GAMEOVER = range(6)
+STATE_MENU, STATE_MISSION_SELECT, STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_GAMEOVER = range(6)
 
 class Game:
     def __init__(self):
@@ -335,10 +371,14 @@ class Game:
         self.near_miss_combo = 0
 
         # game missions and UI
-        self.missions = generate_game_mission(self.diff)
+        self.missions = []
+        self.selected_missions = None
+        #self.state = STATE_MISSION_SELECT
+        
         self.title_t = 0.0
-        self.buttons = []
+        #self.buttons = []
         self.build_menu_buttons()
+        self.state = STATE_MISSION_SELECT
 
         # game power-up states
         self.slow_t = 0.0     
@@ -354,6 +394,53 @@ class Game:
         # game settings
         self.volume = 0.25
         self.update_volume()
+    
+    def start_endless(self):
+        # no selected missions
+        self.missions = []
+        self.player = Car()
+        self.enemies.clear()
+        self.coins.clear()
+        self.powerups.clear()
+        self.road_scroll = 0.0
+        self.speed = self.START_SPEED
+        self.spawn_timer = random.uniform(*self.SPAWN_EVERY)
+        self.coin_timer = random.uniform(*COIN_SPAWN_EVERY)
+        self.pwr_timer  = random.uniform(*PWR_SPAWN_EVERY)
+        self.score = 0.0
+        self.coins_collected = 0
+        self.dead = False
+        self.elapsed = 0.0
+        self.near_miss_combo = 0
+        self.slow_t = self.ghost_t = self.magnet_t = 0.0
+        self.state = STATE_PLAY
+
+    def goto_missions(self):
+        self.state = STATE_MISSION_SELECT
+        
+    def start_mission_from_index(self, idx: int):
+        if idx is None or idx < 0 or idx >= len(MISSION_SELETS):
+            return
+        d = MISSION_SELETS[idx]
+        # Create a single active mission based on selection
+        self.missions = [Missions(d["kind"], d["target"], d["reward"])]
+        # Reset run-specific stats so the mission starts fresh
+        self.player = Car()
+        self.enemies.clear()
+        self.coins.clear()
+        self.powerups.clear()
+        self.road_scroll = 0.0
+        self.speed = self.START_SPEED
+        self.spawn_timer = random.uniform(*self.SPAWN_EVERY)
+        self.coin_timer = random.uniform(*COIN_SPAWN_EVERY)
+        self.pwr_timer  = random.uniform(*PWR_SPAWN_EVERY)
+        self.score = 0.0
+        self.coins_collected = 0
+        self.dead = False
+        self.elapsed = 0.0
+        self.near_miss_combo = 0
+        self.slow_t = self.ghost_t = self.magnet_t = 0.0
+        self.state = STATE_PLAY
 
     def update_volume(self):
         if ENGINE: ENGINE.set_volume(self.volume)
@@ -376,22 +463,19 @@ class Game:
     # -------- UI Settings ------------
     def build_menu_buttons(self):
         self.buttons = []
-        spacing = 68
-        w, h = 260, 52
+        spacing = 64
+        w, h = 280, 52
         x = (WIDTH - w)//2
         start_y = 300
         def add(label, cb):
             self.buttons.append(Button((x, start_y + spacing * len(self.buttons), w, h), label, cb))
-        add("Start (1/2/3)", lambda: None)
-        add("Settings", lambda: self.goto_settings())
+        add("Start", lambda: self.start_endless())
         add("Missions", lambda: self.goto_missions())
+        add("Settings", lambda: self.goto_settings())
         add("Quit", lambda: self.quit())
 
     def goto_settings(self):
         self.state = STATE_SETTINGS
-
-    def goto_missions(self):
-        self.state = STATE_MISSIONS
 
     def quit(self):
         pygame.quit(); sys.exit()
@@ -555,42 +639,97 @@ class Game:
                 surf.blit(tlabel, (x-22, y-4))
         
         # game missions panel 
-        panel = pygame.Surface((WIDTH//2+20, 66), pygame.SRCALPHA)
-        pygame.draw.rect(panel, (30,30,45,120), panel.get_rect(), border_radius=10)
-        y = 6
-        for m in self.missions:
-            prog = m.progress if m.kind=="survive" else min(m.progress, m.target)
-            line = SMALL.render(f"{m.label()} [{int(prog)}/{int(m.target)}]{' ✓' if m.completed else ''}",
+        if self.missions:
+            panel = pygame.Surface((WIDTH//2+20, 66), pygame.SRCALPHA)
+            pygame.draw.rect(panel, (30,30,45,120), panel.get_rect(), border_radius=10)
+            y = 6
+            for m in self.missions:
+                prog = m.progress if m.kind=="survive" else min(m.progress, m.target)
+                line = SMALL.render(f"{m.label()} [{int(prog)}/{int(m.target)}]{' ✓' if m.completed else ''}",
                                 True, UI_ACCENT if m.completed else TEXT)
-            panel.blit(line, (10, y))
-            y += 20
-        surf.blit(panel, ((WIDTH - panel.get_width())//2,8))
+                panel.blit(line, (10, y))
+                y += 20
+                surf.blit(panel, ((WIDTH - panel.get_width())//2,8))
 
-        if any(m.popup_t > 0 for m in self.missions):
+        if self.missions and any(m.popup_t > 0 for m in self.missions):
             popup = pygame.Surface((WIDTH - 80, 50), pygame.SRCALPHA)
             pygame.draw.rect(popup, (40,80,40,220), popup.get_rect(), border_radius=12)
             draw_text_center(popup, "MISSION COMPLETE! +Reward added to Score", MID, (230,255,230), 10)
             surf.blit(popup, (40, HEIGHT-100))
 
     def draw_menu(self, surf, dt):
-        self.title_t += dt
         # animated game title 
+        self.title_t += dt
         title_y = 140 + int(8 * math.sin(self.title_t * 2.2))
-        draw_text_center(surf, "TRAFFIC RUSH", BIG, UI_ACCENT, title_y)
-        draw_text_center(surf, "1) Easy   2) Normal   3) Hard", MID, TEXT, title_y+60)
-        draw_text_center(surf, "Game Controls: click buttons M:Night  R:Rain", SMALL, TEXT, title_y+92)
+        title_color = (70,140,255)
+        draw_text_center(surf, "TRAFFIC RUSH", BIG, title_color, title_y)
+        draw_text_center(surf, "Press 1=Easy, Press 2=Normal, Press 3=Hard", SMALL, UI_ACCENT, HEIGHT-60)
+        draw_text_center(surf, "or press buttons below • M:Night  R:Rain", SMALL, UI_ACCENT, HEIGHT-40)
         for b in self.buttons: b.draw(surf)
 
+
     def draw_missions(self, surf):
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
-        draw_text_center(surf, "MISSIONS", BIG, TEXT, 110)
-        y = 170
-        for m in self.missions:
-            txt = f"• {m.label()}  — Reward: +{m.reward} score"
-            draw_text_center(surf, txt, MID, UI_ACCENT if m.completed else TEXT, y)
-            y += 46
-        draw_text_center(surf, "Progress updates live during play.", SMALL, TEXT, y+10)
-        draw_text_center(surf, "Press P to go back.", MID, TEXT, y+54)
+        surf.fill(BG)
+
+        draw_text_center(surf, "SELECT A MISSION", BIG, UI_ACCENT, 90)
+        draw_text_center(surf, "Click a card or press 1–6 to start", SMALL, TEXT, 130)
+
+        # Layout parameters
+        cols = 1   
+        gap_y = 20
+        card_w, card_h = WIDTH - 2 * ROAD_MARGIN, 130
+        start_x = ROAD_MARGIN
+        start_y = 170
+
+        mouse_pos = pygame.mouse.get_pos()
+
+        for i, d in enumerate(MISSION_SELETS):
+            x = start_x
+            y = start_y + i * (card_h + gap_y)
+            rect = pygame.Rect(x, y, card_w, card_h)
+
+            hover = rect.collidepoint(mouse_pos)
+
+            # Draw card surface
+            card_surf = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            pygame.draw.rect(card_surf, BTN_HL if hover else BTN_BG, card_surf.get_rect(), border_radius=12)
+            pygame.draw.rect(card_surf, (0, 0, 0), card_surf.get_rect(), 2, border_radius=12)
+
+            pad_x, pad_y = 16, 10
+            inner_w = card_w - 2 * pad_x
+            y_cursor = pad_y
+   
+            title_str = f"{i+1}. {d['name']}"
+            title_font, title_surf = shrink_to_fit(
+                title_str, max_width=inner_w, base_size=26, min_size=16, font_name="arial", bold=True
+            )
+            card_surf.blit(title_surf, (pad_x, y_cursor))
+            y_cursor += title_font.get_linesize() + 6
+
+            desc_font = pygame.font.SysFont("arial", 18, bold=False)
+            desc_lines = wrap_text(d["desc"], desc_font, inner_w)
+            max_desc_lines = 2
+            if len(desc_lines) > max_desc_lines:
+                desc_lines = desc_lines[:max_desc_lines]
+                last = desc_lines[-1]
+                while desc_font.size(last + "…")[0] > inner_w and last:
+                    last = last[:-1]
+                desc_lines[-1] = (last + "…") if last else "…"
+            for ln in desc_lines:
+                card_surf.blit(desc_font.render(ln, True, (210, 215, 230)), (pad_x, y_cursor))
+                y_cursor += desc_font.get_linesize()
+                        
+            reward_str = f"Reward: +{d['reward']} score"
+            rw_font, rw_surf = shrink_to_fit(
+                reward_str, max_width=inner_w, base_size=20, min_size=14, font_name="arial", bold=True
+            )
+            card_surf.blit(rw_surf, (pad_x, card_h - pad_y - rw_surf.get_height()))
+                        
+            surf.blit(card_surf, (x, y))
+                        
+        draw_text_center(surf, "M: Night  •  R: Rain  •  F: Fullscreen  •  ESC: Quit", SMALL, (0, 0, 0), HEIGHT - 32)
+
+
 
     def draw_pause(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
@@ -617,10 +756,13 @@ class Game:
             f"Near-Miss Combo: x{self.near_miss_combo}",
             f"Missions Completed: {sum(1 for m in self.missions if m.completed)}/3",
         ]
+
+        if self.missions:
+            summary.append(f"Missions Completed: {sum(1 for m in self.missions if m.completed)}/{len(self.missions)}")
         y = HEIGHT//2 - 28
         for s in summary:
             draw_text_center(surf, s, SMALL, TEXT, y); y += 22
-        draw_text_center(surf, "Press R to Restart • Esc to Quit", MID, TEXT, HEIGHT//2 + 20)
+        draw_text_center(surf, "Press R to Restart • Esc to Quit", MID, TEXT, HEIGHT//6 + 20)
 
     def toggle_fullscreen(self):
         global WIN
@@ -650,9 +792,9 @@ class Game:
 
                     # stateful input
                     if self.state == STATE_MENU:
-                        if event.key == pygame.K_1: self.set_difficulty("Easy"); self.state = STATE_PLAY
-                        if event.key == pygame.K_2: self.set_difficulty("Normal"); self.state = STATE_PLAY
-                        if event.key == pygame.K_3: self.set_difficulty("Hard"); self.state = STATE_PLAY
+                        if event.key == pygame.K_1: self.set_difficulty("Easy"); self.start_endless()
+                        if event.key == pygame.K_2: self.set_difficulty("Normal"); self.start_endless()
+                        if event.key == pygame.K_3: self.set_difficulty("Hard"); self.start_endless()
                     elif self.state == STATE_PLAY:
                         if event.key in (pygame.K_a, pygame.K_LEFT):
                             self.player.move_lane(-1, slippery=self.rain)
@@ -669,9 +811,29 @@ class Game:
                             self.volume = min(1.0, self.volume + 0.05); self.update_volume()
                         if event.key == pygame.K_DOWN:
                             self.volume = max(0.0, self.volume - 0.05); self.update_volume()
-                    elif self.state == STATE_MISSIONS:
-                        if event.key == pygame.K_p:
-                            self.state = STATE_MENU
+                    elif self.state == STATE_MISSION_SELECT:
+                        if event.type == pygame.KEYDOWN:
+                            if pygame.K_1 <= event.key <= pygame.K_9:
+                                idx = event.key - pygame.K_1
+                                if idx < len(MISSION_SELETS):
+                                    self.start_mission_from_index(idx)
+                            if event.key == pygame.K_p:
+                                self.state = STATE_MENU
+                        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                            mx, my = event.pos
+                            cols =2
+                            gap_x, gap_y = 20, 16
+                            card_w, card_h = (WIDTH-2*ROAD_MARGIN - (cols-1)*gap_x)// cols, 110
+                            start_x = ROAD_MARGIN
+                            start_y = 170
+                            for i, _ in enumerate(MISSION_SELETS):
+                                row = i // cols; col = i % cols
+                                x = start_x + col*(card_w + gap_x)
+                                y = start_y + row*(card_h + gap_y)
+                                rect = pygame.Rect(x, y, card_w, card_h)
+                                if rect.collidepoint(mx, my):
+                                    self.start_mission_from_index(i)
+                                    break
                     elif self.state == STATE_GAMEOVER:
                         if event.key == pygame.K_r:
                             self.best = max(getattr(self,'best',0), self.score)
@@ -694,11 +856,11 @@ class Game:
                     self.best = max(getattr(self,'best',0), self.score)
                     self.draw_gameover(WIN)
             elif self.state == STATE_PAUSE:
-                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_pause(WIN)
+                self.draw_game_world(WIN); self.draw_pause(WIN)
             elif self.state == STATE_SETTINGS:
-                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_settings(WIN)
-            elif self.state == STATE_MISSIONS:
-                self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_missions(WIN)
+                self.draw_game_world(WIN); self.draw_settings(WIN)
+            elif self.state == STATE_MISSION_SELECT:
+                self.draw_game_world(WIN); self.draw_missions(WIN)
             elif self.state == STATE_GAMEOVER:
                 self.draw_game_world(WIN); self.draw_game_hud(WIN); self.draw_gameover(WIN)
 
