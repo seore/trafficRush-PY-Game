@@ -395,28 +395,29 @@ class Game:
     def quit(self):
         pygame.quit(); sys.exit()
 
-    def update_play(self, dt, left_pressed, right_pressed):
+    def update_play(self, dt):
         if self.dead: return
         self.elapsed += dt
         self.speed += (self.SPEED_RAMP/60.0) * dt
-        # timers
+        # game timers
         self.slow_t = max(0.0, self.slow_t - dt)
         self.ghost_t = max(0.0, self.ghost_t - dt)
         self.magnet_t = max(0.0, self.magnet_t - dt)
 
-        # score by distance + coins (handled on collect)
+        # scores by distance 
         self.score += (self.speed * dt) / 10.0
 
         # spawns
         self.spawn_timer -= dt
         if self.spawn_timer <= 0:
             lanes = list(range(LANES)); random.shuffle(lanes)
-            cars_to_spawn = 2 if random.random() < 0.35 else 1
+            cars_to_spawn = random.choice([1,2,2,3])
             spawned = 0
             for lane in lanes:
                 if spawned >= cars_to_spawn: break
                 if self.can_spawn_lane(lane):
-                    self.enemies.append(Enemy(lane, y=-ENEMY_H))
+                    name, vinfo = weighted_choice(VEHICLE_TYPES)
+                    self.enemies.append(Enemy(lane, y=-vinfo[0][1], vtype_name=name, vinfo=vinfo))
                     spawned += 1
             self.spawn_timer = random.uniform(*self.SPAWN_EVERY) * max(0.55, 1.0 - self.elapsed / 120.0)
 
@@ -433,7 +434,7 @@ class Game:
             self.powerups.append(PowerUp(kind, lane, y=-PWR_SIZE))
             self.pwr_timer = random.uniform(*PWR_SPAWN_EVERY)
 
-        # update entities
+        # update on game entities
         sf = self.slow_factor()
         for e in self.enemies: e.update(dt, self.speed, sf)
         for c in self.coins:
@@ -453,12 +454,12 @@ class Game:
                     self.state = STATE_GAMEOVER
                     break
 
-        # coin collect
+        # coin collection
         for c in self.coins:
             if c.rect.colliderect(self.player.rect):
                 c.collected = True
                 self.coins_collected += 1
-                self.score += 50 + 5*self.near_miss_combo  # small combo synergy
+                self.score += 50 + 5 * self.near_miss_combo  
 
         # power-up collect
         for p in self.powerups:
@@ -466,37 +467,39 @@ class Game:
                 if p.kind == "SLOW": self.slow_t = 4.0
                 elif p.kind == "GHOST": self.ghost_t = 3.0
                 elif p.kind == "MAGNET": self.magnet_t = 6.0
-                p.rect.y = HEIGHT + 100  # remove next cull
+                p.rect.y = HEIGHT + 100  
 
-        # near-miss detection (enemy passes close without hit)
+        # near-miss detection (enemy passes without hit)
         for e in self.enemies:
             if not e.near_miss_counted:
-                # trigger when enemy bottom just passes player top within a slim delta horizontally
                 vertical_gap = e.rect.bottom - self.player.rect.top
                 same_lane = (e.lane == self.player.lane)
                 if 0 < vertical_gap < 26 and same_lane:
                     e.near_miss_counted = True
                     self.near_miss_combo += 1
                     self.score += 20 + 10*self.near_miss_combo
-        # decay combo slowly when no near misses for a while (approx via speed)
         if random.random() < 0.01:
             self.near_miss_combo = max(0, self.near_miss_combo - 1)
+
+        # game missions
+        for m in self.missions:
+            m.update_progress(self, dt)
+            if m.popup_t > 0:
+                m.popup_t -= dt
 
         # road scroll
         self.road_scroll = (self.road_scroll + self.speed*sf*dt) % (DASH_HEIGHT + DASH_GAP)
 
-        # engine pitch (if audio present)
+        # engine pitch (only if audio present)
         if ENGINE:
-            # pygame doesn’t have native pitch; emulate via volume for now
             ENGINE.set_volume(self.volume * min(1.0, 0.5 + (self.speed/400.0)))
 
-    def draw_world(self, surf):
-        # background + road
+    def draw_game_world(self, surf):
         surf.fill(BG)
         pygame.draw.rect(surf, ROAD, (ROAD_MARGIN, 0, WIDTH - 2*ROAD_MARGIN, HEIGHT))
         road_width = WIDTH - 2*ROAD_MARGIN
         lane_w = road_width / LANES
-        # lane dashes
+        # lane details
         for i in range(1, LANES):
             x = int(ROAD_MARGIN + lane_w * i)
             y = -int(self.road_scroll)
@@ -504,7 +507,7 @@ class Game:
                 pygame.draw.rect(surf, LANE_LINE, (x - LANE_LINE_WIDTH//2, y, LANE_LINE_WIDTH, DASH_HEIGHT))
                 y += DASH_HEIGHT + DASH_GAP
 
-        # rain overlay
+        # rain detail overlay
         if self.rain:
             rain = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             for _ in range(90):
@@ -513,19 +516,18 @@ class Game:
                 pygame.draw.line(rain, (180,180,220,110), (rx, ry), (rx+2, ry+10), 2)
             surf.blit(rain, (0,0))
 
-        # entities
         for c in self.coins: c.draw(surf)
         for p in self.powerups: p.draw(surf)
         self.player.draw(surf, night=self.night)
         for e in self.enemies: e.draw(surf, night=self.night)
 
-        # night global dim
+        # nightMode global dim
         if self.night:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0,0,0,120))
             surf.blit(overlay, (0,0))
 
-    def draw_hud(self, surf):
+    def draw_game_hud(self, surf):
         # meters
         score_txt = FONT.render(f"Score: {int(self.score):,}", True, TEXT)
         best_txt = FONT.render(f"Best: {int(getattr(self,'best',0)):,}", True, TEXT)
@@ -550,13 +552,44 @@ class Game:
                                  (x, y, int(bar_w*pct), bar_h), border_radius=6)
                 tlabel = FONT.render(name, True, TEXT)
                 surf.blit(tlabel, (x-22, y-4))
+        
+        # game missions panel 
+        panel = pygame.Surface((WIDTH//2+20, 66), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (30,30,45,120), panel.get_rect(), border_radius=10)
+        y = 6
+        for m in self.missions:
+            prog = m.progress if m.kind=="survive" else min(m.progress, m.target)
+            line = SMALL.render(f"{m.label()} [{int(prog)}/{int(m.target)}]{' ✓' if m.completed else ''}",
+                                True, UI_ACCENT if m.completed else TEXT)
+            panel.blit(line, (10, y))
+            y += 20
+        surf.blit(panel, ((WIDTH - panel.get_width())//2,8))
 
-    def draw_menu(self, surf):
-        draw_text_center(surf, "TRAFFIC RUSH", BIG, TEXT, 160)
-        draw_text_center(surf, "1) Easy   2) Normal   3) Hard", MID, TEXT, 240)
-        draw_text_center(surf, "Controls: A/Left  D/Right  P:Pause  M:Night  R:Rain", FONT, TEXT, 300)
-        draw_text_center(surf, "Collect coins • Power-ups: Slow, Ghost, Magnet", FONT, TEXT, 330)
-        draw_text_center(surf, "Press 1/2/3 to start", FONT, TEXT, 380)
+        if any(m.popup_t > 0 for m in self.missions):
+            popup = pygame.Surface((WIDTH - 80, 50), pygame.SRCALPHA)
+            pygame.draw.rect(popup, (40,80,40,220), popup.get_rect(), border_radius=12)
+            draw_text_center(popup, "MISSION COMPLETE! +Reward added to Score", MID, (230,255,230), 10)
+            surf.blit(popup, (40, HEIGHT-100))
+
+    def draw_menu(self, surf, dt):
+        self.title_t += dt
+        # animated game title 
+        title_y = 140 + int(8 * math.sin(self.title_t * 2.2))
+        draw_text_center(surf, "TRAFFIC RUSH", BIG, UI_ACCENT, title_y)
+        draw_text_center(surf, "1) Easy   2) Normal   3) Hard", MID, TEXT, title_y+60)
+        draw_text_center(surf, "Game Controls: click buttons M:Night  R:Rain", SMALL, TEXT, title_y+92)
+        for b in self.buttons: b.draw(surf)
+
+    def draw_missions(self, surf):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
+        draw_text_center(surf, "MISSIONS", BIG, TEXT, 110)
+        y = 170
+        for m in self.missions:
+            txt = f"• {m.label()}  — Reward: +{m.reward} score"
+            draw_text_center(surf, txt, MID, UI_ACCENT if m.completed else TEXT, y)
+            y += 46
+        draw_text_center(surf, "Progress updates live during play.", SMALL, TEXT, y+10)
+        draw_text_center(surf, "Press P to go back.", MID, TEXT, y+54)
 
     def draw_pause(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
@@ -565,23 +598,40 @@ class Game:
 
     def draw_settings(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
-        draw_text_center(surf, "SETTINGS", BIG, TEXT, 140)
-        draw_text_center(surf, f"Volume: {int(self.volume*100)}%  (Up/Down to change)", MID, TEXT, 210)
-        draw_text_center(surf, "Night Mode: M", MID, TEXT, 260)
-        draw_text_center(surf, "Rain: R", MID, TEXT, 300)
+        draw_text_center(surf, "SETTINGS", BIG, TEXT, 120)
+        draw_text_center(surf, f"Volume: {int(self.volume*100)}%  (Up/Down)", MID, TEXT, 200)
+        draw_text_center(surf, f"Night Mode: {'On' if self.night else 'Off'} (M)", MID, TEXT, 240)
+        draw_text_center(surf, f"Rain: {'On' if self.rain else 'Off'} (R)", MID, TEXT, 280)
+        draw_text_center(surf, f"Fullscreen: {'On' if self.fullscreen else 'Off'} (F)", MID, TEXT, 320)
         draw_text_center(surf, "Back: P", MID, TEXT, 360)
 
     def draw_gameover(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
-        draw_text_center(surf, "CRASH!", BIG, TEXT, HEIGHT//2 - 90)
-        draw_text_center(surf, f"Score: {int(self.score):,}   Best: {int(self.best):,}", MID, TEXT, HEIGHT//2 - 30)
+        draw_text_center(surf, "CRASH!", BIG, TEXT, HEIGHT//2 - 120)
+        draw_text_center(surf, f"Score: {int(self.score):,}   Best: {int(self.best):,}", MID, TEXT, HEIGHT//2 - 70)
+        # game summary
+        summary = [
+            f"Time Survived: {int(self.elapsed)}s",
+            f"Coins: {self.coins_collected}",
+            f"Near-Miss Combo: x{self.near_miss_combo}",
+            f"Missions Completed: {sum(1 for m in self.missions if m.completed)}/3",
+        ]
+        y = HEIGHT//2 - 28
+        for s in summary:
+            draw_text_center(surf, s, SMALL, TEXT, y); y += 22
         draw_text_center(surf, "Press R to Restart • Esc to Quit", MID, TEXT, HEIGHT//2 + 20)
 
-    def handle_keydown_global(self, key):
-        if key == pygame.K_m: self.night = not self.night
-        if key == pygame.K_r and self.state in (STATE_PLAY, STATE_PAUSE, STATE_SETTINGS):
-            self.rain = not self.rain
+    def toggle_fullscreen(self):
+        global WIN, WIDTH, HEIGHT
+        self.fullscreen = not self.fullscreen
+        if self.fullscreen:
+            WIN = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
+        else:
+            WIN = pygame.display.set_mode((WIDTH, HEIGHT))
+        global LANE_X
+        LANE_X = lane_centers()
 
+    # -------- Game Loop -------------
     def main_update_draw(self):
         left_pressed = right_pressed = False
         running = True
