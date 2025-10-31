@@ -242,6 +242,66 @@ class PowerUp:
         t = FONT.render(self.kind[0], True, (40,40,60))
         surf.blit(t, (self.rect.centerx - t.get_width()//2, self.rect.centery - t.get_height()//2))
 
+# ===================== Game Missions =====================
+class Missions:
+    # "survive", "coins", "combo"
+    def __init__(self, kind, target, reward):
+        self.kind = kind
+        self.target = target 
+        self.progress = 0 
+        self.completed = False 
+        self.reward = reward 
+        self.popup_t = 0.0
+
+    def label(self):
+        if self.kind == "survive":
+            return f"Survive {self.target}s"
+        if self.kind == "coins":
+            return f"Collect {self.target} coins"
+        if self.kind == "combo":
+            return f"Near-miss combo x{self.target}"
+        return "Mission"
+    
+    def update_progress(self, game, dt):
+        if self.completed: return
+        if self.kind == "survive":
+            self.progress += dt
+            if self.progress >= self.target: 
+                self.complete(game)
+        elif self.kind == "coins":
+            self.progress = game.coins_collected
+            if self.progress >= self.target:
+                self.complete(game)
+        elif self.kind == "combo":
+            self.progress = max(self.progress, game.near_miss_combo)
+            if self.progress >= self.target:
+                self.complete(game)
+    
+    def complete(self, game):
+        self.completed = True
+        game.score += self.reward
+        self.popup_t = 2.0
+
+def generate_game_mission(difficulty):
+    if difficulty == "Easy":
+        return [
+            Missions("survive", 30, 200), 
+            Missions("coins", 10, 150), 
+            Missions("combo", 3, 150),
+        ]
+    if difficulty == "Hard":
+        return [
+            Missions("survive", 60, 400), 
+            Missions("coins", 20, 300), 
+            Missions("combo", 6, 350),
+        ]
+    return [
+            Missions("survive", 45, 300), 
+            Missions("coins", 15, 250), 
+            Missions("combo", 4, 250),
+        ]
+
+
 # ===================== The Game =====================
 STATE_MENU, STATE_PLAY, STATE_PAUSE, STATE_SETTINGS, STATE_GAMEOVER = range(5)
 
