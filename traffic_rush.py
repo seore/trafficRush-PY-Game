@@ -82,15 +82,13 @@ ENGINE = None
 CRASH = None
 if AUDIO_OK:
     try:
-        # Placeholders: load your own "engine.ogg" and "crash.ogg" if available.
-        # If files are missing, we silently skip.
-        ENGINE = pygame.mixer.Sound("engine.ogg")
+        ENGINE = pygame.mixer.Sound("carMove.mp3")
         ENGINE.play(loops=-1)
         ENGINE.set_volume(0.25)
     except Exception:
         ENGINE = None
     try:
-        CRASH = pygame.mixer.Sound("crash.ogg")
+        CRASH = pygame.mixer.Sound("crash.mp3")
     except Exception:
         CRASH = None
 
