@@ -390,7 +390,7 @@ class Game:
         draw_text_center(surf, f"Night Mode: {'On' if self.night else 'Off'} (M)", MID, TEXT, 240)
         draw_text_center(surf, f"Rain: {'On' if self.rain else 'Off'} (R)", MID, TEXT, 280)
         draw_text_center(surf, f"Fullscreen: {'On' if getattr(self,'fullscreen',False) else 'Off'} (F)", MID, TEXT, 320)
-        draw_text_center(surf, "Back: P", MID, TEXT, 360)
+        draw_text_center(surf, "Back: B", MID, TEXT, 360)
     def draw_gameover(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
         draw_text_center(surf, "CRASH!", BIG, (255,60,60), HEIGHT//2 - 120)
