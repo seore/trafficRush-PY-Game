@@ -332,27 +332,57 @@ class Game:
         clip = pygame.Rect(ROAD_MARGIN, start_y-8, card_w, view_h+8)
         old_clip = surf.get_clip(); surf.set_clip(clip)
         y_off = int(self.mission_scroll)
+
+        def get_field(obj, attr, default=None):
+            try:
+                val = getattr(obj, attr)
+                return val
+            except Exception:
+                pass
+
+            try:
+                return obj.get(attr, default) if isinstance(obj, dict) else default
+            except Exception:
+                return default
+            
         for i,m in enumerate(MISSION_SELETS):
+            name = get_field(m, "name", get_field(m, "title", f"Mission {i+1}"))
+            desc = get_field(m, "desc", get_field(m, "description", f"No description {i+1}"))
+            reward = get_field(m, "reward", 0)
+
             rect = pygame.Rect(ROAD_MARGIN, start_y + i*(card_h+gap_y) - y_off, card_w, card_h)
             hover = rect.collidepoint(pygame.mouse.get_pos())
             pygame.draw.rect(surf, BTN_HL if hover else BTN_BG, rect, border_radius=12)
             pygame.draw.rect(surf, (0,0,0), rect, 2, border_radius=12)
             pad_x, pad_y = 14, 10
-            surf.blit(MID.render(f"{i+1}. {m.name}", True, TEXT), (rect.x+pad_x, rect.y+pad_y))
+            surf.blit(MID.render(f"{i+1}. {name}", True, TEXT), (rect.x+pad_x, rect.y+pad_y))
+
             desc_font = pygame.font.SysFont("arial", 16)
             lines = []
-            txt = m.desc
-            for ln in txt.splitlines():
-                lines += [ln]
-            for li,ln in enumerate(lines[:2]):
-                surf.blit(desc_font.render(ln, True, (210,215,230)), (rect.x+pad_x, rect.y+pad_y+28+li*20))
-            surf.blit(SMALL.render(f"Reward: +{m.reward} score", True, UI_ACCENT), (rect.x+pad_x, rect.bottom - 28))
+            max_chars = 46
+            words = desc.split()
+            line = ""
+
+            for w in words:
+                if len(line) + len(w) + 1 <= max_chars:
+                    line = (line + " " + w).strip()
+                else:
+                    lines.append(line)
+                    line = w
+                if len(lines) >= 2:
+                    break
+                for li,ln in enumerate(lines[:2]):
+                    surf.blit(desc_font.render(ln, True, (210,215,230)), (rect.x+pad_x, rect.y+pad_y+28+li*20))
+
+            surf.blit(SMALL.render(f"Reward: +{reward} score", True, UI_ACCENT), (rect.x+pad_x, rect.bottom - 28))
+
         surf.set_clip(old_clip)
-        draw_text_center(surf, "Use Wheel/Up/Down to scroll • Press P to go back", SMALL, (0,0,0), HEIGHT-32)
+        draw_text_center(surf, "Use Wheel/Up/Down to scroll • Press B to go back", SMALL, (0,0,0), HEIGHT-32)
+
     def draw_pause(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
         draw_text_center(surf, "PAUSED", BIG, TEXT, HEIGHT//2 - 60)
-        draw_text_center(surf, "Resume: P  •  Settings: S  •  Quit: Esc", MID, TEXT, HEIGHT//2)
+        draw_text_center(surf, "Resume: P  •  Settings: S  •  Back: Esc", MID, TEXT, HEIGHT//2)
     def draw_settings(self, surf):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); overlay.fill(DIM); surf.blit(overlay,(0,0))
         draw_text_center(surf, "SETTINGS", BIG, TEXT, 120)

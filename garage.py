@@ -25,11 +25,17 @@ class Garage:
 
     def draw(self, surf):
         surf.fill(PANEL_BG)
-        draw_centered = lambda t, y, f=None, c=TEXT: surf.blit(f.render(t, True, c), ((surf.get_width()-f.size(t)[0])//2, y))
-        draw_centered("GARAGE", 30)
+        def draw_centered(t, y, f=None, c=TEXT):
+            font_to_use = f if f is not None else self.mid_font
+            if font_to_use is None:
+                font_to_use = pygame.font.SysFont("arial", 18)
+            surf.blit(font_to_use.render(t, True, c), ((surf.get_width() - font_to_use.size(t)[0]) // 2, y))
+        draw_centered("GARAGE", 30, None, TEXT)
+        
         # coin display
         coin_text = f"Coins: {self.game.coins}"
-        surf.blit(self.small_font.render(coin_text, True, (255,215,0)), (16, 18))
+        sf = self.small_font or pygame.font.SysFont("arial", 16)
+        surf.blit(sf.render(coin_text, True, (255,215,0)), (16, 18))
 
         # vehicle list (single column)
         start_y = 120
@@ -39,23 +45,28 @@ class Garage:
             rect = pygame.Rect(60, y, surf.get_width()-120, 110)
             pygame.draw.rect(surf, BTN_HL if i==self.index else BTN_BG, rect, border_radius=12)
             pygame.draw.rect(surf, (0,0,0), rect, 2, border_radius=12)
+            
             # title
-            surf.blit(self.mid_font.render(name.upper(), True, TEXT), (rect.x+14, rect.y+8))
+            mf = self.mid_font or pygame.font.SysFont("arial", 20, bold=True)
+            surf.blit(mf.render(name.upper(), True, TEXT), (rect.x+14, rect.y+8))
+           
             # stats
             v = self.vehicles[name]
-            stat_line = f"ACC {v['accel']}  |  SPD {v['speed']}  |  MAG {v['magnet']}  |  DUR {v['duration']}"
-            surf.blit(self.small_font.render(stat_line, True, (220,220,220)), (rect.x+14, rect.y+44))
+            stat_line = f"ACC {v['acceleration']}  |  SPD {v['speed']}  |  MAG {v['magnet']}  |  DUR {v['duration']}"
+            sf2 = self.small_font or pygame.font.SysFont("arial", 16)
+            surf.blit(sf2.render(stat_line, True, (220,220,220)), (rect.x+14, rect.y+44))
+            
             # buttons
             btn_rect = pygame.Rect(rect.right-140, rect.bottom-36, 120, 28)
             if v["unlocked"]:
                 pygame.draw.rect(surf, (70,200,70), btn_rect, border_radius=6)
-                surf.blit(self.small_font.render("Select", True, (0,0,0)), (btn_rect.centerx-20, btn_rect.centery-9))
+                surf.blit(sf2.render("Select", True, (0,0,0)), (btn_rect.centerx-20, btn_rect.centery-9))
             else:
                 pygame.draw.rect(surf, (200,70,70), btn_rect, border_radius=6)
-                surf.blit(self.small_font.render(f"Buy ({UNLOCK_PRICE})", True, (0,0,0)), (btn_rect.centerx-36, btn_rect.centery-9))
+                surf.blit(sf2.render(f"Buy ({UNLOCK_PRICE})", True, (0,0,0)), (btn_rect.centerx-36, btn_rect.centery-9))
 
         # game instructions
-        surf.blit(self.small_font.render("Click green to select, red to buy. Use Up/Down to scroll. Esc to return.", True, (200,200,200)), (24, surf.get_height()-36))
+        surf.blit(sf2.render("Click green to select, red to buy. Use Up/Down to scroll. Esc to return.", True, (200,200,200)), (24, surf.get_height()-36))
 
     def click_at(self, pos):
         x,y = pos
